@@ -12,3 +12,7 @@ build:
 install:
 	@echo "Installing to GOBIN..."
 	@go install ./reminder
+
+test:
+	@echo "Running tests..."
+	@go test -race -v -cover ./...

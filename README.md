@@ -1,7 +1,9 @@
 # DelayQ
 
-DelayQ is a `Go` library that provides a distributed, performant, reliable delay-queue mechanism to build job-queues,
-schedulers etc.
+[![GoDoc](https://godoc.org/github.com/spy16/delayq?status.svg)](https://godoc.org/github.com/spy16/delayq) [![Go Report Card](https://goreportcard.com/badge/github.com/spy16/delayq)](https://goreportcard.com/report/github.com/spy16/delayq) ![Go](https://github.com/spy16/delayq/workflows/Go/badge.svg?branch=master)
+
+DelayQ is a Go library that provides a performant, reliable, distributed delay-queue using Redis which can
+be used as building block for job-queues, schedulers etc.
 
 ## Features
 
