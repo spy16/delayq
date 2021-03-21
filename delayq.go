@@ -116,7 +116,7 @@ func (dq *DelayQ) recover(ctx context.Context) (err error) {
 			// after every reclaim-interval, run recovery to reclaim any items
 			// stuck in the unack set due to some other worker crash.
 			keys := []string{dq.unAckSet, dq.delaySet}
-			args := []interface{}{"-inf", time.Now().Unix(), 0}
+			args := []interface{}{time.Now().Unix(), 0}
 			_, err = zmove.Run(ctx, dq.client, keys, args...).Result()
 			if err != nil {
 				log.Printf("failed to do recovery: %v", err)
@@ -162,7 +162,7 @@ func (dq *DelayQ) reap(ctx context.Context, now int64) ([]string, error) {
 	// once moved it is guaranteed that no other worker will pick up the
 	// same items.
 	keys := []string{dq.delaySet, dq.unAckSet}
-	args := []interface{}{now, dq.reclaimTTL.Seconds(), dq.workers}
+	args := []interface{}{now, dq.reclaimTTL.Seconds(), dq.prefetch}
 	items, err := zmove.Run(ctx, dq.client, keys, args...).Result()
 	if err != nil {
 		return nil, err
