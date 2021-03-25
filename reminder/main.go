@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -17,9 +18,11 @@ import (
 )
 
 var (
-	addr     = flag.String("redis", "localhost:6379", "Redis host address")
-	count    = flag.Int("count", 0, "number of reminders to set")
-	delay    = flag.Duration("in", 0, "remind in after this duration")
+	addr       = flag.String("redis", "localhost:6379", "Redis host address")
+	count      = flag.Int("count", 0, "number of reminders to set")
+	delay      = flag.Duration("in", 0, "remind in after this duration")
+	distribute = flag.Bool("dist", false, "distribute randomly over the in period")
+
 	workers  = flag.Int("workers", 10, "number of workers")
 	pollInt  = flag.Duration("poll", 300*time.Millisecond, "polling interval")
 	reclaim  = flag.Duration("reclaim", 1*time.Minute, "reclaim interval for unAck set")
@@ -35,7 +38,7 @@ func main() {
 
 	if *count > 0 {
 		log.Printf("enqueing %d reminder(s) in %s", *count, *delay)
-		if err := enqueue(dq, *count, *delay); err != nil {
+		if err := enqueue(dq, *count, *delay, *distribute); err != nil {
 			log.Fatalf("failed to enqueue: %v", err)
 		}
 		return
@@ -75,19 +78,31 @@ func setupQ() *delayq.DelayQ {
 	})
 }
 
-func enqueue(dq *delayq.DelayQ, count int, in time.Duration) error {
-	t := time.Now().Add(in)
+func enqueue(dq *delayq.DelayQ, count int, in time.Duration, distribute bool) error {
+	now := time.Now()
 
-	items := make([]delayq.Item, count, count)
+	batchNum := 1
+	maxBatchSz := 20000
+	items := make([]delayq.Item, maxBatchSz, maxBatchSz)
 	for i := 0; i < count; i++ {
-		items[i] = delayq.Item{
-			At: t,
+		idx := i % maxBatchSz
+
+		items[idx] = delayq.Item{
+			At: getT(now, in, distribute),
 			Value: fmt.Sprintf("Hello - %d! (set at %d with %s delay)",
 				i, time.Now().UnixNano(), in),
 		}
+		if idx == len(items)-1 || i == count-1 {
+			batch := items[0 : idx+1]
+			log.Printf("enqueing batch %d (size=%d)", batchNum, len(batch))
+			if err := dq.Delay(context.Background(), batch...); err != nil {
+				log.Printf("failed to enqueue: %v", err)
+			}
+			batchNum++
+		}
 	}
 
-	return dq.Delay(context.Background(), items...)
+	return nil
 }
 
 func reportRate() {
@@ -98,4 +113,14 @@ func reportRate() {
 			lastCount = counter
 		}
 	}
+}
+
+func getT(ref time.Time, in time.Duration, distribute bool) time.Time {
+	var at int64
+	if distribute {
+		at = ref.Unix() + rand.Int63n(int64(in.Seconds()))
+	} else {
+		at = ref.Unix() + int64(in.Seconds())
+	}
+	return time.Unix(at, 0).UTC()
 }
