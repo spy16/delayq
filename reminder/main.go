@@ -18,15 +18,17 @@ import (
 )
 
 var (
-	addr       = flag.String("redis", "localhost:6379", "Redis host address")
 	count      = flag.Int("count", 0, "number of reminders to set")
-	delay      = flag.Duration("in", 0, "remind in after this duration")
 	distribute = flag.Bool("dist", false, "distribute randomly over the in period")
+	addr       = flag.String("redis", "localhost:6379", "Redis host address")
+	delay      = flag.Duration("in", 0, "remind in after this duration")
 
-	workers  = flag.Int("workers", 10, "number of workers")
-	pollInt  = flag.Duration("poll", 300*time.Millisecond, "polling interval")
-	reclaim  = flag.Duration("reclaim", 1*time.Minute, "reclaim interval for unAck set")
-	prefetch = flag.Int("prefetch", 100, "pre-fetch batch size")
+	workers     = flag.Int("workers", 10, "number of workers")
+	prefetch    = flag.Int("prefetch", 100, "pre-fetch batch size")
+	pollInt     = flag.Duration("poll", 300*time.Millisecond, "polling interval")
+	reclaim     = flag.Duration("reclaim", 1*time.Minute, "reclaim interval for unAck set")
+	readShards  = flag.Int("read-shards", 1, "Number of shards to read-from")
+	writeShards = flag.Int("write-shards", 1, "Number of shards to write-to")
 
 	rate    = ratecounter.NewRateCounter(1 * time.Second)
 	counter = int64(0)
@@ -52,7 +54,7 @@ func main() {
 	log.Printf("delay-queue worker exited normally")
 }
 
-func remind(_ context.Context, value []byte) error {
+func remind(_ context.Context, _ []byte) error {
 	atomic.AddInt64(&counter, 1)
 	rate.Incr(1)
 	return nil
@@ -75,6 +77,8 @@ func setupQ() *delayq.DelayQ {
 		PollInterval:  *pollInt,
 		PreFetchCount: *prefetch,
 		ReclaimTTL:    *reclaim,
+		ReadShards:    *readShards,
+		WriteShards:   *writeShards,
 	})
 }
 
@@ -90,7 +94,7 @@ func enqueue(dq *delayq.DelayQ, count int, in time.Duration, distribute bool) er
 		items[idx] = delayq.Item{
 			At: getT(now, in, distribute),
 			Value: fmt.Sprintf("Hello - %d! (set at %d with %s delay)",
-				i, time.Now().UnixNano(), in),
+				i, time.Now().Unix(), in),
 		}
 		if idx == len(items)-1 || i == count-1 {
 			batch := items[0 : idx+1]

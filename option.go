@@ -1,9 +1,19 @@
 package delayq
 
-import "time"
+import (
+	"time"
+)
 
 // Options represents queue-level configurations for the delay queue.
 type Options struct {
+	// ReadShards represents the number of splits to read from. This will
+	// always be >= WriteShards.
+	ReadShards int
+
+	// WriteShards represents the number of splits made to the delay & un-ack
+	// sets. This value must always be <= ReadShards. Defaults to 1.
+	WriteShards int
+
 	// Workers represents the number of threads to launch for fetching batch
 	// and processing. A single worker fetches a batch and processes items in
 	// the batch sequentially.
@@ -38,4 +48,12 @@ func (opt *Options) setDefaults() {
 	if opt.ReclaimTTL == 0 {
 		opt.ReclaimTTL = 3 * time.Minute
 	}
+	if opt.WriteShards == 0 {
+		opt.WriteShards = 1
+	}
+	if opt.ReadShards < opt.WriteShards {
+		opt.ReadShards = opt.WriteShards
+	}
 }
+
+type loggerFunc func(level, format string, args ...interface{})

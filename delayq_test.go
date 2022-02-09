@@ -24,20 +24,20 @@ func TestDelayQ_Delay(t *testing.T) {
 	dq := New(t.Name(), client)
 	err := dq.Delay(context.Background(), item)
 	if err != nil {
-		t.Errorf("failed to delay item: %v", err)
+		t.Fatalf("failed to delay item: %v", err)
 	}
 
-	items, err := client.ZRange(context.Background(), dq.delaySet, 0, 1000).Result()
+	items, err := client.ZRange(context.Background(), dq.getSetName(false), 0, 1000).Result()
 	if err != nil {
-		t.Errorf("failed to zrange: %v", err)
+		t.Fatalf("failed to zrange: %v", err)
 	}
 
 	if len(items) != 1 {
-		t.Errorf("expected 1 item in set, got %d", len(items))
+		t.Fatalf("expected 1 item in set, got %d", len(items))
 	}
 
 	if items[0] != item.Value {
-		t.Errorf("expected item to be '%s', got '%s'", item.Value, items[0])
+		t.Fatalf("expected item to be '%s', got '%s'", item.Value, items[0])
 	}
 }
 

@@ -14,6 +14,8 @@ func TestOptions_setDefaults(t *testing.T) {
 		PollInterval:  500 * time.Millisecond,
 		PreFetchCount: 20,
 		ReclaimTTL:    3 * time.Minute,
+		WriteShards:   1,
+		ReadShards:    1,
 	}
 
 	if opts != expect {
