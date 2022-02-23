@@ -1,4 +1,4 @@
-package delayq
+package redis
 
 import (
 	"time"
