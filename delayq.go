@@ -192,7 +192,7 @@ func (dq *DelayQ) zfetch(ctx context.Context, fromSet string, scoreDelta float64
 	now := time.Now().Unix()
 	newScore := float64(now) + scoreDelta
 
-	// atomically fetch & increment score for ready items from the queue.
+	// set new-score & fetch ready items atomically from the queue.
 	keys := []string{fromSet}
 	args := []interface{}{now, newScore, batchSz}
 	items, err := zfetchLua.Run(ctx, dq.client, keys, args...).Result()
@@ -245,7 +245,7 @@ else
 end
 
 for i, value in ipairs(items) do
-	redis.call('ZINCRBY', from_set, target_priority or 0.0, value)
+	redis.call('ZADD', from_set, 'XX', target_priority or 0.0, value)
 end
 
 return items
