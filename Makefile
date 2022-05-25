@@ -6,12 +6,8 @@ clean:
 	@rm -rf ./bin
 
 build:
-	@echo "Building bin/reminder..."
-	@go build -o bin/reminder ./reminder
-
-install:
-	@echo "Installing to GOBIN..."
-	@go install ./reminder
+	@echo "Building bin/example..."
+	@go build -o bin/example ./example
 
 test:
 	@echo "Running tests..."

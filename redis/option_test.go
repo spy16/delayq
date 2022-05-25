@@ -1,4 +1,4 @@
-package delayq
+package redis
 
 import (
 	"testing"
@@ -10,8 +10,6 @@ func TestOptions_setDefaults(t *testing.T) {
 	opts.setDefaults()
 
 	expect := Options{
-		Workers:       10,
-		PollInterval:  500 * time.Millisecond,
 		PreFetchCount: 20,
 		ReclaimTTL:    3 * time.Minute,
 		WriteShards:   1,
