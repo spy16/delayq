@@ -1,0 +1,14 @@
+{
+  "queue_type": "sql_db",
+  "queue_name": "example",
+  "redis": {
+    "read_shards": 3,
+    "write_shards": 3,
+    "pre_fetch_count": 10,
+    "reclaim_ttl": 10
+  },
+  "sql_db": {
+    "driver": "sqlite3",
+    "spec": "example.db"
+  }
+}

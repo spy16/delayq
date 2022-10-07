@@ -2,58 +2,31 @@ package delayq
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
-	"log"
-	"math/rand"
-	"reflect"
-	"strings"
-	"sync"
 	"time"
-
-	"github.com/go-redis/redis/v8"
 )
 
-// New returns a new delay-queue instance with given queue name.
-func New(queueName string, client redis.UniversalClient, opts ...Options) *DelayQ {
-	var opt Options
-	if len(opts) > 0 {
-		opt = opts[0]
-	}
-	opt.setDefaults()
+var ErrNoItem = errors.New("no ready items")
 
-	return &DelayQ{
-		client:      client,
-		workers:     opt.Workers,
-		pollInt:     opt.PollInterval,
-		prefetch:    opt.PreFetchCount,
-		queueName:   queueName,
-		reclaimTTL:  opt.ReclaimTTL,
-		readShards:  opt.ReadShards,
-		writeShards: opt.WriteShards,
-		Logger: func(level, format string, args ...interface{}) {
-			level = strings.TrimSpace(strings.ToUpper(level))
-			log.Printf("[%s] %s", level, fmt.Sprintf(format, args...))
-		},
-	}
+// DelayQ is a queue with a time constraint on each item. Items in
+// the queue should be ready for dequeue only at/after the At timestamp
+// set for each item.
+type DelayQ interface {
+	// Enqueue should enqueue all items atomically into the queue storage.
+	// If any item fails, all items should be dequeued.
+	Enqueue(ctx context.Context, items ...Item) error
+
+	// Dequeue should dequeue available items relative to the given time
+	// and invoke 'fn' for each item safely. Dequeue must ensure that in
+	// case of failures or context cancellation, the items being dequeued
+	// are released back to the queue storage.
+	Dequeue(ctx context.Context, relativeTo time.Time, fn Process) error
 }
 
 // Process function is invoked for every item that becomes ready. An item
-// remains on the queue until this function returns no error.
-type Process func(ctx context.Context, value []byte) error
-
-// DelayQ represents a distributed, reliable delay-queue backed by Redis.
-type DelayQ struct {
-	Logger      loggerFunc
-	client      redis.UniversalClient
-	pollInt     time.Duration
-	workers     int
-	prefetch    int
-	queueName   string
-	reclaimTTL  time.Duration
-	readShards  int
-	writeShards int
-}
+// remains on the queue until this function returns without error.
+type Process func(ctx context.Context, item Item) error
 
 // Item represents an item to be pushed to the queue.
 type Item struct {
@@ -61,192 +34,33 @@ type Item struct {
 	Value string    `json:"value"`
 }
 
-// Delay pushes an item onto the delay-queue with the given delay. Value must
-// be unique. Duplicate values will be ignored.
-func (dq *DelayQ) Delay(ctx context.Context, items ...Item) error {
-	_, err := dq.client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
-		for _, item := range items {
-			pipe.ZAdd(ctx, dq.getSetName(true), &redis.Z{
-				Score:  float64(item.At.Unix()),
-				Member: item.Value,
-			})
-		}
-		return nil
+func (itm Item) JSON() string {
+	b, err := json.Marshal(itm)
+	if err != nil {
+		// this should never happen since Item is meant for JSON.
+		panic(err)
+	}
+	return string(b)
+}
+
+func (itm Item) MarshalJSON() ([]byte, error) {
+	return json.Marshal(itemJSONModel{
+		At:    itm.At.Unix(),
+		Value: itm.Value,
 	})
-	return err
 }
 
-// Run runs the worker loop that invoke fn whenever a delayed value is ready.
-// It blocks until all worker goroutines exit due to some critical error or
-// until context is cancelled, whichever happens first.
-func (dq *DelayQ) Run(ctx context.Context, fn Process) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	wg := &sync.WaitGroup{}
-	for i := 0; i < dq.workers; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			if err := dq.reaper(ctx, id, fn); err != nil && !errors.Is(err, context.Canceled) {
-				dq.log("warn", "reaper-%d died: %v", id, err)
-			} else {
-				dq.log("info", "reaper-%d exited gracefully", id)
-			}
-		}(i)
+func (itm Item) UnmarshalJSON(bytes []byte) error {
+	var model itemJSONModel
+	if err := json.Unmarshal(bytes, &model); err != nil {
+		return err
 	}
-	wg.Wait() // wait for workers to exit.
-
-	dq.log("info", "all workers returned, delayq shutting down")
+	itm.At = time.Unix(model.At, 0).UTC()
+	itm.Value = model.Value
 	return nil
 }
 
-func (dq *DelayQ) reaper(ctx context.Context, id int, fn Process) (err error) {
-	defer func() {
-		if v := recover(); v != nil {
-			err = fmt.Errorf("panic: %v", v)
-		}
-	}()
-
-	pollTimer := time.NewTimer(0)
-	defer pollTimer.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		case <-pollTimer.C:
-			pollTimer.Reset(dq.pollInt)
-
-			if err := dq.reap(ctx, id, fn); err != nil {
-				dq.log("warn", "reap error: %v", err)
-				continue
-			}
-		}
-	}
+type itemJSONModel struct {
+	At    int64  `json:"at"`
+	Value string `json:"value"`
 }
-
-func (dq *DelayQ) reap(ctx context.Context, reaperID int, fn Process) error {
-	// add 30 seconds as a safety measure to prevent reclaiming too soon.
-	reclaimTTL := (dq.reclaimTTL + (30 * time.Second)).Seconds()
-
-	setName := dq.getSetName(false)
-	dq.log("debug", "reaper-%d picking set '%s'", reaperID, setName)
-	list, err := dq.zfetch(ctx, setName, reclaimTTL, dq.prefetch)
-	if err != nil {
-		return err
-	} else if len(list) == 0 {
-		return nil
-	}
-	dq.log("debug", "reaper-%d got %d items", reaperID, len(list))
-
-	// entire batch of items is subjected to the same TTL. So we create
-	// a single context with timeout.
-	ctx, cancel := context.WithTimeout(ctx, dq.reclaimTTL)
-	defer cancel()
-
-	start := time.Now()
-	for _, v := range list {
-		select {
-		case <-ctx.Done():
-			// TODO: nAck items that we have not pushed to the stream.
-			return ctx.Err()
-
-		default:
-			item, isStr := v.(string)
-			if !isStr {
-				panic(fmt.Errorf("expecting string, got %s", reflect.TypeOf(v)))
-			}
-
-			failure := false
-			fnErr := fn(ctx, []byte(item))
-			if fnErr != nil {
-				failure = true
-				dq.log("warn", "fn failed to process item, will requeue: %v", err)
-			}
-
-			// ack/nAck the item. ignoring the error is okay since if the ack failed,
-			// the item remains in the un-ack set and will be claimed by the reclaimer.
-			_ = dq.ack(ctx, setName, item, failure)
-		}
-	}
-
-	dq.log("debug", "finished %d items in %s", len(list), time.Since(start))
-	return nil
-}
-
-func (dq *DelayQ) ack(ctx context.Context, queueName, item string, negative bool) error {
-	if negative {
-		// reduce the score set for the item when it was fetched for
-		// execution so that it is picked up again for immediate retry.
-		_, err := dq.client.ZIncrBy(ctx, queueName, -1*dq.reclaimTTL.Seconds(), item).Result()
-		return err
-	}
-
-	_, err := dq.client.ZRem(ctx, queueName, item).Result()
-	return err
-}
-
-func (dq *DelayQ) zfetch(ctx context.Context, fromSet string, scoreDelta float64, batchSz int) ([]interface{}, error) {
-	now := time.Now().Unix()
-	newScore := float64(now) + scoreDelta
-
-	// set new-score & fetch ready items atomically from the queue.
-	keys := []string{fromSet}
-	args := []interface{}{now, newScore, batchSz}
-	items, err := zfetchLua.Run(ctx, dq.client, keys, args...).Result()
-	if err != nil {
-		dq.log("error", "lua script execution failed: %v", err)
-		return nil, err
-	}
-
-	list, ok := items.([]interface{})
-	if !ok {
-		panic(fmt.Errorf("expecting list, got %s", reflect.TypeOf(list)))
-	}
-
-	dq.log("debug", "moved %d items", len(list))
-	return list, nil
-}
-
-func (dq *DelayQ) getSetName(forWrite bool) string {
-	var shardID int
-
-	if forWrite {
-		shardID = rand.Intn(dq.writeShards)
-	} else {
-		shardID = rand.Intn(dq.readShards)
-	}
-
-	// Refer https://redis.io/topics/cluster-spec for understanding reason for using '{}'
-	// in the following keys.
-	if shardID == 0 {
-		return fmt.Sprintf("delayq:{%s}", dq.queueName)
-	}
-	return fmt.Sprintf("delayq:{%s-%d}", dq.queueName, shardID)
-}
-func (dq *DelayQ) log(level, format string, args ...interface{}) {
-	if dq.Logger == nil {
-		return
-	}
-	dq.Logger(level, format, args...)
-}
-
-var zfetchLua = redis.NewScript(`
-local from_set = KEYS[1]
-local max_priority, target_priority, limit = ARGV[1], ARGV[2], ARGV[3]
-
-local items
-if limit then
-	items = redis.call('ZRANGE', from_set, '-inf', max_priority, 'BYSCORE', 'LIMIT', 0, limit)
-else
-	items = redis.call('ZRANGE', from_set, '-inf', max_priority, 'BYSCORE')
-end
-
-for i, value in ipairs(items) do
-	redis.call('ZADD', from_set, 'XX', target_priority or 0.0, value)
-end
-
-return items
-`)

@@ -2,13 +2,18 @@
 
 [![GoDoc](https://godoc.org/github.com/spy16/delayq?status.svg)](https://godoc.org/github.com/spy16/delayq) [![Go Report Card](https://goreportcard.com/badge/github.com/spy16/delayq)](https://goreportcard.com/report/github.com/spy16/delayq) ![Go](https://github.com/spy16/delayq/actions/workflows/code_change.yml/badge.svg)
 
-DelayQ is a Go library that provides a performant, reliable, distributed delay-queue using Redis which can
-be used as building block for job-queues, schedulers etc.
+DelayQ is a Go library that provides job-queue (time-constrained) primitives.
+
+Currently following implementations are supported:
+
+1. `inmem.DelayQ`: An in-memory queue using modified min-heap for time-constrained dequeue.
+2. `redis.DelayQ`: A production-tested queue using Redis (supports both single-node & cluster) that uses sorted-sets.
+3. `sql.DelayQ`: An implementation backed by any SQL database.
 
 ## Features
 
-* Simple - More like a queue primitive to build job-queue instead of being one.
-* Distributed - Multiple producer/consumer processes connect to a Redis node or cluster.
+* Simple - More like a queue primitive to build job-queue instead of being a feature-rich job-queue system.
+* Distributed (with `redis` or `sqldb`) - Multiple producer/consumer processes connect to a Redis node or cluster.
 * Reliable - `at-least-once` semantics (exactly-once in most cases except for when there are worker crashes)
 * Good performance (See Benchmarks).
 
@@ -17,37 +22,34 @@ be used as building block for job-queues, schedulers etc.
 For enqueueing items on the delay queue:
 
 ```go
-package foo
-
-func enqueue() error {
-	dq := delayq.New("my_queue", redisClient)
-
-	// arrange the message to be delivered to a worker
-	// after 1 hour.
-	return dq.Delay(context.Background(), delayq.Item{
-		At:    time.Now().Add(1 * time.Hour),
-		Value: "Hello!",
-	})
-}
+_, _ = dq.Enqueue(context.Background(), delayq.Item{
+   At:    time.Now().Add(1 * time.Hour),
+   Value: "Hello!",
+})
 ```
 
 Creating a worker to process:
 
 ```go
-package foo
+package main
 
-func worker() {
-	dq := delayq.New("my_queue", redisClient)
+import "github.com/spy16/delayq"
 
-	// run worker threads that invoke myFunc for every item.
-	if err := dq.Run(context.Background(), myFunc); err != nil {
-		log.Fatalf("run exited: %v", err)
-	}
+func worker(dq delayq.DelayQ) {
+   w := &delayq.Worker{
+      Queue:  dq,
+      Invoke: myFunc,
+   }
+
+   // run worker threads that invoke myFunc for every item.
+   if err := w.Run(context.Background()); err != nil {
+      log.Fatalf("run exited: %v", err)
+   }
 }
 
-func myFunc(ctx context.Context, value string) error {
-	log.Printf("got message: %v", value)
-	return nil
+func myFunc(ctx context.Context, item delayq.Item) error {
+   log.Printf("got message: %v", item)
+   return nil
 }
 ```
 
@@ -55,7 +57,7 @@ func myFunc(ctx context.Context, value string) error {
 
 Benchmarks can be re-produced using the example application in `./reminder`.
 
-Following are few actual benchmark results that I  got:
+Following are few actual benchmark results that I got:
 
 > Both Redis and Reminder tool are running on single node with following specs:
 > * CPU   : `2.8 GHz Quad-Core Intel Core i7`
