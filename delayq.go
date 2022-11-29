@@ -34,7 +34,7 @@ type Item struct {
 	Value string    `json:"value"`
 }
 
-func (itm Item) JSON() string {
+func (itm *Item) JSON() string {
 	b, err := json.Marshal(itm)
 	if err != nil {
 		// this should never happen since Item is meant for JSON.
@@ -43,14 +43,14 @@ func (itm Item) JSON() string {
 	return string(b)
 }
 
-func (itm Item) MarshalJSON() ([]byte, error) {
+func (itm *Item) MarshalJSON() ([]byte, error) {
 	return json.Marshal(itemJSONModel{
 		At:    itm.At.Unix(),
 		Value: itm.Value,
 	})
 }
 
-func (itm Item) UnmarshalJSON(bytes []byte) error {
+func (itm *Item) UnmarshalJSON(bytes []byte) error {
 	var model itemJSONModel
 	if err := json.Unmarshal(bytes, &model); err != nil {
 		return err
