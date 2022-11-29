@@ -22,16 +22,20 @@ Currently following implementations are supported:
 For enqueueing items on the delay queue:
 
 ```go
-err := dq.Enqueue(context.Background(), []delayq.Item{
-    delayq.Item{
-       At:    time.Now().Add(1 * time.Hour),
-       Value: "Item 1!",		
-    },
-   {
-      At:    time.Now().Add(2 * time.Hour),
-      Value: "Item 2!",
-   },
-}...)
+package main
+
+func main() {
+   err := dq.Enqueue(context.Background(), []delayq.Item{
+      {
+         At:    time.Now().Add(1 * time.Hour),
+         Value: "Item 1!",
+      },
+      {
+         At:    time.Now().Add(2 * time.Hour),
+         Value: "Item 2!",
+      },
+   }...)
+}
 ```
 
 Creating a worker to process:
