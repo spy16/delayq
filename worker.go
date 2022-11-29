@@ -24,17 +24,12 @@ type Worker struct {
 	PollInterval time.Duration
 }
 
+// Run launches worker goroutines that continuously poll the Queue and
+// invoke the configured Process function. Run() blocks until all workers
+// exit. Cancelling the context will perform a graceful shutdown.
 func (w *Worker) Run(ctx context.Context) error {
-	if w.Queue == nil {
-		return errors.New("queue is not set, nothing to do")
-	}
-
-	if w.Workers <= 0 {
-		w.Workers = 1
-	}
-
-	if w.PollInterval <= 0 {
-		w.PollInterval = 500 * time.Millisecond
+	if err := w.sanitiseConfig(); err != nil {
+		return err
 	}
 
 	wg := &sync.WaitGroup{}
@@ -72,4 +67,19 @@ func (w *Worker) work(ctx context.Context, id int) error {
 			}
 		}
 	}
+}
+
+func (w *Worker) sanitiseConfig() error {
+	if w.Queue == nil {
+		return errors.New("queue is not set, nothing to do")
+	}
+
+	if w.Workers <= 0 {
+		w.Workers = 1
+	}
+
+	if w.PollInterval <= 0 {
+		w.PollInterval = 500 * time.Millisecond
+	}
+	return nil
 }

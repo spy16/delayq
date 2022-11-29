@@ -80,6 +80,7 @@ func main() {
 		Workers:      *workers,
 		PollInterval: *pollInt,
 	}
+
 	if err := w.Run(context.Background()); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("delay-queue worker exited: %v", err)
 	}

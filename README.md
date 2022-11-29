@@ -22,10 +22,16 @@ Currently following implementations are supported:
 For enqueueing items on the delay queue:
 
 ```go
-_, _ = dq.Enqueue(context.Background(), delayq.Item{
-   At:    time.Now().Add(1 * time.Hour),
-   Value: "Hello!",
-})
+err := dq.Enqueue(context.Background(), []delayq.Item{
+    delayq.Item{
+       At:    time.Now().Add(1 * time.Hour),
+       Value: "Item 1!",		
+    },
+   {
+      At:    time.Now().Add(2 * time.Hour),
+      Value: "Item 2!",
+   },
+}...)
 ```
 
 Creating a worker to process:
@@ -38,7 +44,7 @@ import "github.com/spy16/delayq"
 func worker(dq delayq.DelayQ) {
    w := &delayq.Worker{
       Queue:  dq,
-      Invoke: myFunc,
+      Invoke: onReady,
    }
 
    // run worker threads that invoke myFunc for every item.
@@ -47,7 +53,7 @@ func worker(dq delayq.DelayQ) {
    }
 }
 
-func myFunc(ctx context.Context, item delayq.Item) error {
+func onReady(ctx context.Context, item delayq.Item) error {
    log.Printf("got message: %v", item)
    return nil
 }
@@ -55,11 +61,11 @@ func myFunc(ctx context.Context, item delayq.Item) error {
 
 ## Benchmarks
 
-Benchmarks can be re-produced using the example application in `./reminder`.
+Benchmarks can be re-produced using the example application in `./example`.
 
 Following are few actual benchmark results that I got:
 
-> Both Redis and Reminder tool are running on single node with following specs:
+> Both Redis and worker are running on single node with following specs:
 > * CPU   : `2.8 GHz Quad-Core Intel Core i7`
 > * Memory: `16 GB 2133 MHz LPDDR3`
 

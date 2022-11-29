@@ -34,6 +34,7 @@ type Item struct {
 	Value string    `json:"value"`
 }
 
+// JSON returns the JSON representation of the item.
 func (itm *Item) JSON() string {
 	b, err := json.Marshal(itm)
 	if err != nil {
