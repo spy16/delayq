@@ -22,6 +22,9 @@ type DelayQ interface {
 	// case of failures or context cancellation, the items being dequeued
 	// are released back to the queue storage.
 	Dequeue(ctx context.Context, relativeTo time.Time, fn Process) error
+
+	// Delete should delete the given item from the queue storage.
+	Delete(ctx context.Context, items ...Item) error
 }
 
 // Process function is invoked for every item that becomes ready. An item
