@@ -72,6 +72,16 @@ func (dq *DelayQ) Dequeue(ctx context.Context, relativeTo time.Time, fn delayq.P
 	return nil
 }
 
+func (dq *DelayQ) Delete(ctx context.Context, items ...delayq.Item) error {
+	members := make([]interface{}, len(items), len(items))
+	for i, item := range items {
+		members[i] = item.JSON()
+	}
+
+	_, err := dq.client.ZRem(ctx, dq.getSetName(true), members...).Result()
+	return err
+}
+
 func (dq *DelayQ) reap(ctx context.Context, relativeTo time.Time, fn delayq.Process) error {
 	delaySet := dq.getSetName(false)
 
