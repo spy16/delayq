@@ -179,7 +179,6 @@ func (dq *DelayQ) zFetch(ctx context.Context, t time.Time, fromSet string, score
 		return nil, fmt.Errorf("expecting list, got %s", reflect.TypeOf(list))
 	}
 
-	dq.log("debug", "moved %d items", len(list))
 	return list, nil
 }
 
