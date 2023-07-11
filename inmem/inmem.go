@@ -44,6 +44,11 @@ func (mem *DelayQ) Dequeue(ctx context.Context, relativeTo time.Time, fn delayq.
 	return nil
 }
 
+func (mem *DelayQ) Delete(ctx context.Context, items ...delayq.Item) error {
+	mem.qu.Delete(items...)
+	return nil
+}
+
 func (mem *DelayQ) Run(ctx context.Context, fn delayq.Process) error {
 	ticker := time.NewTicker(mem.Tick)
 	defer ticker.Stop()
@@ -100,6 +105,25 @@ func (q *requestQ) Dequeue(t time.Time) *delayq.Item {
 	q.heapifyDown(0)               // bubble down
 
 	return &item
+}
+
+func (q *requestQ) Delete(reqs ...delayq.Item) {
+	if q.Size() == 0 {
+		return
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for _, req := range reqs {
+		for i, item := range q.items {
+			if item.At == req.At && item.Value == req.Value {
+				q.swap(i, q.Size()-1)          // swap with last element
+				q.items = q.items[:q.Size()-1] // remove last element
+				q.heapifyDown(i)               // bubble down
+			}
+		}
+	}
 }
 
 // Size returns the number of items in the queue.

@@ -50,6 +50,29 @@ func (dq *DelayQ) Dequeue(ctx context.Context, relativeTo time.Time, fn delayq.P
 	return nil
 }
 
+func (dq *DelayQ) Delete(ctx context.Context, items ...delayq.Item) error {
+	delQuery := fmt.Sprintf(`DELETE FROM %s WHERE value=$1 AND next_at=$2`, dq.table)
+	txErr := dq.withTx(ctx, func(tx *sql.Tx) error {
+		stmt, err := tx.PrepareContext(ctx, delQuery)
+		if err != nil {
+			return err
+		}
+
+		for _, item := range items {
+			if _, err := stmt.Exec(item.Value, item.At.Unix()); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if txErr != nil {
+		return txErr
+	}
+
+	return nil
+}
+
 func (dq *DelayQ) processOne(baseCtx context.Context, t time.Time, fn delayq.Process) error {
 	id, item, err := dq.findOneReady(baseCtx, t)
 	if err != nil {
