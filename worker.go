@@ -22,6 +22,9 @@ type Worker struct {
 
 	// PollInterval decides the interval between each Dequeue() invocation.
 	PollInterval time.Duration
+
+	// Debug mode prints additional messages during execution of worker threads.
+	Debug bool
 }
 
 // Run launches worker goroutines that continuously poll the Queue and
@@ -39,7 +42,9 @@ func (w *Worker) Run(ctx context.Context) error {
 			defer wg.Done()
 
 			if err := w.work(ctx, id); err != nil {
-				log.Printf("[ERROR] worker-%d exited with error: %v", id, err)
+				if w.Debug {
+					log.Printf("[ERROR] worker-%d exited with error: %v", id, err)
+				}
 			}
 		}(i)
 	}
@@ -62,7 +67,9 @@ func (w *Worker) work(ctx context.Context, id int) error {
 			tick.Reset(w.PollInterval)
 
 			if err := w.Queue.Dequeue(ctx, t, w.Invoke); err != nil {
-				log.Printf("[ERROR] [worker-%d] dequeue failed: %v", id, err)
+				if w.Debug {
+					log.Printf("[ERROR] [worker-%d] dequeue failed: %v", id, err)
+				}
 				continue
 			}
 		}
